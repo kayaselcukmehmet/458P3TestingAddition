@@ -6,7 +6,9 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
-
+from selenium.webdriver.chrome.service import Service
+import shutil
+import sys
 # Shared server & driver for all tests in this module
 server = None
 driver = None
@@ -19,10 +21,6 @@ def setUpModule():
         ["python3", "-m", "http.server", "3000"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
     )
-
-    from selenium.webdriver.chrome.service import Service
-    import shutil
-    import sys
 
     options = webdriver.ChromeOptions()
     # options.add_argument("--headless")  # Uncomment if you want headless testing
@@ -232,5 +230,63 @@ class SurveyBuilderTests(unittest.TestCase):
         preview_label = self.driver.find_element(By.CSS_SELECTOR, "#previewForm label")
         self.assertEqual(preview_label.text, "Q?")
 
+    def test_import_invalid_survey_code_shows_alert(self):
+        """Loading a malformed Base64 code shows an alert and leaves the question list empty."""
+        # make sure builder is loaded
+        self.wait.until(EC.presence_of_element_located((By.ID, "loadSurveyCode")))
+        self.driver.find_element(By.ID, "loadSurveyCode").send_keys("not-base64!!!")
+        # hijack window.alert to capture message
+        self.driver.execute_script("window.alert = msg => window._lastAlert = msg;")
+        self.driver.find_element(By.ID, "loadSurveyBtn").click()
+        alert_text = self.driver.execute_script("return window._lastAlert;")
+        self.assertIn("Invalid survey code", alert_text)
+        # no questions should be added
+        items = self.driver.find_elements(By.CLASS_NAME, "q-item")
+        self.assertEqual(len(items), 0)
+
+    def test_rapid_new_and_save_does_not_crash(self):
+        """Repeated New→Save clicks don’t break the builder, and you can still add a real question."""
+        self.wait.until(EC.element_to_be_clickable((By.ID, "newQuestionBtn")))
+        for _ in range(10):
+            self.driver.find_element(By.ID, "newQuestionBtn").click()
+            self.driver.find_element(By.ID, "saveQuestionBtn").click()
+        # now actually add one valid question
+        self.driver.find_element(By.ID, "qText").send_keys("Stable?")
+        Select(self.driver.find_element(By.ID, "qType")).select_by_value("text")
+        self.driver.find_element(By.ID, "saveQuestionBtn").click()
+        items = self.driver.find_elements(By.CLASS_NAME, "q-item")
+        self.assertTrue(any("Stable? (text)" in itm.text for itm in items))
+
+class SurveyPageErrorTests(unittest.TestCase):
+    def setUp(self):
+        self.driver = driver
+        self.wait = wait
+
+    def test_survey_page_no_code_shows_error(self):
+        """Visiting survey.html without "?code=" displays the error message."""
+        self.driver.get("http://localhost:3000/survey.html")
+        err = self.wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "body p")))
+        self.assertEqual(err.text, "No survey code provided.")
+
+
+class BuilderFeatureTests(unittest.TestCase):
+    base_url = "http://localhost:3000/survey-builder.html"
+
+    def setUp(self):
+        self.driver = driver
+        self.wait = wait
+        self.driver.get(self.base_url)
+        self.wait.until(EC.element_to_be_clickable((By.ID, "newQuestionBtn")))
+
+    def test_options_group_appears_for_multiple_choice_and_disappears_for_text(self):
+        # Select MCQ → options textarea appears
+        Select(self.driver.find_element(By.ID, "qType")).select_by_value("multiple-choice")
+        self.assertTrue(self.driver.find_element(By.ID, "optionsGroup").is_displayed())
+
+        # Switch to text → options hidden
+        Select(self.driver.find_element(By.ID, "qType")).select_by_value("text")
+        self.assertFalse(self.driver.find_element(By.ID, "optionsGroup").is_displayed())
+
+    
 if __name__ == "__main__":
     unittest.main()
