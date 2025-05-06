@@ -1,0 +1,142 @@
+<!-- survey.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Take Survey</title>
+  <style>
+    body { font-family:"Segoe UI",sans-serif; padding:1rem; background:#f9f9f9; }
+    form { background:#fff; padding:1rem; border-radius:6px; box-shadow:0 0 5px rgba(0,0,0,0.1); }
+    .q-wrap { margin-bottom:1rem; }
+    label { display:block; margin-bottom:.5rem; font-weight:500; }
+    textarea, select, input[type="text"] {
+      width:100%; padding:.5rem; border:1px solid #ccc; border-radius:4px;
+    }
+    button { padding:.5rem 1rem; background:#3498db; color:#fff; border:none; border-radius:4px; cursor:pointer; }
+  </style>
+</head>
+<body>
+
+  <h1>Take Survey</h1>
+  <form id="surveyForm">
+    <!-- questions get injected here -->
+    <div style="text-align:center; margin-top:1rem;">
+      <button type="submit">Submit Survey</button>
+    </div>
+  </form>
+
+  <script>
+    const form = document.getElementById('surveyForm');
+
+    function getQuestionsFromURL() {
+      // grab everything after "?code="
+      const s = window.location.search;
+      if (!s.startsWith('?code=')) throw new Error('No survey code provided.');
+      const raw = s.substring(6);
+      // decode any % escapes, then Base64 → JSON
+      const b64 = decodeURIComponent(raw);
+      const json = decodeURIComponent(escape(atob(b64)));
+      return JSON.parse(json);
+    }
+
+    function renderSurvey(questions) {
+      questions.forEach((q, i) => {
+        const wrap = document.createElement('div');
+        wrap.className = 'q-wrap';
+        wrap.dataset.idx = i;
+
+        const label = document.createElement('label');
+        label.textContent = q.text;
+        wrap.appendChild(label);
+
+        switch(q.type) {
+          case 'multiple-choice':
+            q.options.forEach(opt => {
+              const d = document.createElement('div');
+              d.innerHTML = `<label><input type="radio" name="q${i}" value="${opt}"> ${opt}</label>`;
+              wrap.appendChild(d);
+            });
+            break;
+          case 'rating':
+            const sel = document.createElement('select');
+            sel.name = `q${i}`;
+            [1,2,3,4,5].forEach(n => {
+              const o = document.createElement('option');
+              o.value = n; o.textContent = n;
+              sel.appendChild(o);
+            });
+            wrap.appendChild(sel);
+            break;
+          case 'text':
+            const ta = document.createElement('textarea');
+            ta.name = `q${i}`;
+            wrap.appendChild(ta);
+            break;
+          case 'dropdown':
+            const dd = document.createElement('select');
+            dd.name = `q${i}`;
+            q.options.forEach(opt => {
+              const o = document.createElement('option');
+              o.value = opt; o.textContent = opt;
+              dd.appendChild(o);
+            });
+            wrap.appendChild(dd);
+            break;
+          case 'checkboxes':
+            q.options.forEach(opt => {
+              const cd = document.createElement('div');
+              cd.innerHTML = `<label><input type="checkbox" name="q${i}" value="${opt}"> ${opt}</label>`;
+              wrap.appendChild(cd);
+            });
+            break;
+        }
+
+        // conditional logic
+        if (q.condition) {
+          wrap.style.display = 'none';
+          form.addEventListener('change', () => {
+            let show = false;
+            document.querySelectorAll(`[name="q${q.condition.qIdx}"]`).forEach(el => {
+              if ((el.type==='radio'||el.type==='checkbox') && el.checked && el.value===q.condition.value) show = true;
+              if (el.tagName==='SELECT' && el.value===q.condition.value) show = true;
+            });
+            wrap.style.display = show ? '' : 'none';
+          });
+        }
+
+        form.insertBefore(wrap, form.lastElementChild);
+      });
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      let questions;
+      try {
+        questions = getQuestionsFromURL();
+      } catch (e) {
+        document.body.innerHTML = `<p style="color:red;">${e.message}</p>`;
+        return;
+      }
+      renderSurvey(questions);
+
+      form.addEventListener('submit', e => {
+        e.preventDefault();
+        const data = {};
+        questions.forEach((q, i) => {
+          const name = `q${i}`;
+          if (q.type === 'checkboxes') {
+            data[name] = Array.from(form.querySelectorAll(`[name="${name}"]:checked`)).map(el=>el.value);
+          } else {
+            const el = form.querySelector(`[name="${name}"]`);
+            data[name] = el ? el.value : null;
+          }
+        });
+        console.log('Survey responses:', data);
+        alert('Thank you for submitting!');
+        // → send `data` to your server here via fetch/AJAX
+      });
+    });
+  </script>
+
+</body>
+</html>
